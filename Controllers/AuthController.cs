@@ -26,6 +26,13 @@ namespace EMS.API.Controllers
         [HttpPost("register")]
         public async Task<ActionResult<User>> Register(User user)
         {
+            // Check if email is already registered
+            var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == user.Email);
+            if (existingUser != null)
+            {
+                return BadRequest("Email is already registered.");
+            }
+
             // Hash the password before saving
             user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password);
 
