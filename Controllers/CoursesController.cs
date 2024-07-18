@@ -4,10 +4,10 @@ using EMS.API.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using System.Security.Claims;
 
 namespace EMS.API.Controllers
 {
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     [Route("api/[controller]")]
     [ApiController]
     public class CoursesController : ControllerBase
@@ -22,13 +22,13 @@ namespace EMS.API.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Course>>> GetCourses()
         {
-            return await _context.Courses.Include(c => c.Teacher).ToListAsync();
+            return await _context.Courses.ToListAsync();
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<Course>> GetCourse(int id)
         {
-            var course = await _context.Courses.Include(c => c.Teacher).FirstOrDefaultAsync(c => c.Id == id);
+            var course = await _context.Courses.FindAsync(id);
 
             if (course == null)
             {
@@ -39,8 +39,13 @@ namespace EMS.API.Controllers
         }
 
         [HttpPost]
+        [Authorize(Roles = "Teacher")]
         public async Task<ActionResult<Course>> CreateCourse(Course course)
         {
+            // Get the authenticated teacher's ID
+            var teacherId = int.Parse(User.FindFirst(ClaimTypes.Name)?.Value);
+            course.TeacherId = teacherId;
+
             _context.Courses.Add(course);
             await _context.SaveChangesAsync();
 
@@ -48,14 +53,29 @@ namespace EMS.API.Controllers
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateCourse(int id, Course course)
+        [Authorize(Roles = "Teacher")]
+        public async Task<IActionResult> EditCourse(int id, Course course)
         {
             if (id != course.Id)
             {
                 return BadRequest();
             }
 
-            _context.Entry(course).State = EntityState.Modified;
+            // Ensure the course belongs to the authenticated teacher
+            var teacherId = int.Parse(User.FindFirst(ClaimTypes.Name)?.Value);
+            var existingCourse = await _context.Courses.FindAsync(id);
+
+            if (existingCourse == null || existingCourse.TeacherId != teacherId)
+            {
+                return Forbid();
+            }
+
+            existingCourse.Name = course.Name;
+            existingCourse.Explanation = course.Explanation;
+            existingCourse.IsMandatory = course.IsMandatory;
+            existingCourse.Credit = course.Credit;
+
+            _context.Entry(existingCourse).State = EntityState.Modified;
 
             try
             {
@@ -63,7 +83,7 @@ namespace EMS.API.Controllers
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (!_context.Courses.Any(e => e.Id == id))
+                if (!CourseExists(id))
                 {
                     return NotFound();
                 }
@@ -76,20 +96,10 @@ namespace EMS.API.Controllers
             return NoContent();
         }
 
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteCourse(int id)
+        private bool CourseExists(int id)
         {
-            var course = await _context.Courses.FindAsync(id);
-
-            if (course == null)
-            {
-                return NotFound();
-            }
-
-            _context.Courses.Remove(course);
-            await _context.SaveChangesAsync();
-
-            return NoContent();
+            return _context.Courses.Any(e => e.Id == id);
         }
     }
+
 }
